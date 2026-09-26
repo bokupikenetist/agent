@@ -1,0 +1,35 @@
+# config/app.yaml — основные настройки каркаса (см. ТЗ §7)
+layout: default            # берётся config/layouts/default.yaml
+
+window:
+  title_regex: "Space Station 14"
+  retry_seconds: 2
+
+capture:
+  backend: wgc             # wgc | dxcam | mss | folder
+  folder: null             # путь к PNG для backend: folder
+
+ocr:
+  engine: tesseract
+  language: rus
+  workers: 1
+  tesseract:
+    cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+    psm: 6
+    oem: 1
+    min_word_conf: 40      # слова ниже порога отбрасываются
+
+journal:
+  dir: sessions            # sessions/<YYYY-MM-DD_HH-MM-SS>/events.jsonl
+  save_crops: false
+
+sinks:
+  console: true
+  websocket: {enabled: true, host: 127.0.0.1, port: 8765}
+
+debug:
+  preview: false
+
+logging:
+  level: INFO
+  file: logs/ss14_ocr.log
