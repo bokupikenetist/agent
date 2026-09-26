@@ -58,10 +58,17 @@ class JournalCfg(BaseModel):
     save_crops: bool = False           # FR-10
 
 
+class WsLoggingCfg(BaseModel):
+    """Пересылка журнала логов в браузер через тот же WS-порт."""
+    enabled: bool = True               # слать лог-записи подключённым клиентам
+    tail_file: bool = True             # при подключении отдать хвост файла лога
+
+
 class WebsocketSinkCfg(BaseModel):
     enabled: bool = True
     host: str = "127.0.0.1"            # FR-11/NFR-8: только localhost
     port: int = Field(8765, ge=1, le=65535)
+    logging: WsLoggingCfg = WsLoggingCfg()
 
 
 class SinksCfg(BaseModel):

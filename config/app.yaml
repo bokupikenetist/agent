@@ -25,7 +25,13 @@ journal:
 
 sinks:
   console: true
-  websocket: {enabled: true, host: 127.0.0.1, port: 8765}
+  websocket:
+    enabled: true
+    host: 127.0.0.1
+    port: 8765
+    logging:                       # логи в браузере: открыть http://127.0.0.1:8765/
+      enabled: true                # пересылать лог-записи WS-клиентам
+      tail_file: true              # при подключении отдать хвост файла лога
 
 debug:
   preview: false
