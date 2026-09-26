@@ -28,25 +28,36 @@ class TesseractEngine:
         return self.t.cmd                  # явный путь из app.yaml (FR-8)
 
     def recognize(self, image: np.ndarray, language: str) -> list[OcrLine]:
+        import os
         import pytesseract
 
         cfg_args = f"--oem {self.t.oem} --psm {self.t.psm}"
-        env = {}
+        # у image_to_data нет параметров cmd/env (это аргументы run_tesseract) —
+        # путь к бинарю задаём через pytesseract.tesseract_cmd, tessdata — через
+        # переменную окружения TESSDATA_PREFIX
+        cmd = self.get_cmd()
+        if cmd is not None:
+            pytesseract.tesseract_cmd = cmd
+        prev_prefix = os.environ.get("TESSDATA_PREFIX")
         if self.t.tessdata_dir:
-            env["TESSDATA_PREFIX"] = self.t.tessdata_dir
+            os.environ["TESSDATA_PREFIX"] = self.t.tessdata_dir
         try:
             data = pytesseract.image_to_data(
                 image,
                 lang=language,
                 config=cfg_args,
-                cmd=self.get_cmd(),
                 output_type=pytesseract.Output.DICT,
-                **({"env": env} if env else {}),
             )
         except pytesseract.TesseractNotFoundError as e:
             raise RuntimeError(
                 "tesseract не найден; укажите ocr.tesseract.cmd в app.yaml"
             ) from e
+        finally:
+            if self.t.tessdata_dir:
+                if prev_prefix is None:
+                    os.environ.pop("TESSDATA_PREFIX", None)
+                else:
+                    os.environ["TESSDATA_PREFIX"] = prev_prefix
         return self._lines_from_data(data)
 
     def _lines_from_data(self, data: dict) -> list[OcrLine]:

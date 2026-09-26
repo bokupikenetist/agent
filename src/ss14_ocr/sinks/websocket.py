@@ -21,11 +21,45 @@ from __future__ import annotations
 import collections
 import json
 import logging
+import socket
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 MAX_LOG_RECORDS = 500          # буфер последних лог-записей для истории
+
+
+def lan_ips() -> list[str]:
+    """IPv4-адреса сетевых интерфейсов хоста (без loopback).
+
+    Используется, чтобы при host=0.0.0.0 напечатать в логе и отдать клиентам
+    готовые URL для подключения из локальной сети. Реализация без сторонних
+    зависимостей: допытываем адрес(а) через getaddrinfo по имени хоста и
+    трюк с UDP-сокетом (он не отправляет пакетов, но даёт адрес активного
+    интерфейса).
+    """
+    ips: set[str] = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+    except OSError:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))       # маршрутизация выбирает активный интерфейс
+            ip = s.getsockname()[0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+        finally:
+            s.close()
+    except OSError:
+        pass
+    return sorted(ips)
+
+
 TAIL_LINES = 300               # строк файла лога отдаём при подключении
 
 
@@ -60,6 +94,17 @@ class WebSocketSink:
         self._log_records: collections.deque = collections.deque(maxlen=MAX_LOG_RECORDS)
         self._pending_logs: list[str] = []
         self._log_handler: WsLogHandler | None = None
+
+    def lan_urls(self) -> list[str]:
+        """Готовые ws://-URL для подключения из локальной сети.
+
+        Пустой список в localhost-режиме (host — конкретный непривязанный
+        адрес или 127.x): наружу ничего не торчит. При host=0.0.0.0 или ''
+        отдаём по URL на каждый LAN-адрес хоста.
+        """
+        if self.host not in ("0.0.0.0", ""):
+            return []
+        return [f"ws://{ip}:{self.port}/" for ip in lan_ips()]
 
     # ---------- lifecycle ----------
     async def start(self) -> None:
@@ -102,6 +147,7 @@ class WebSocketSink:
             log.info("WS-клиент подключился: %s (всего %d)", ws.remote_address, len(self._clients))
             try:
                 hello = {"type": "hello", "tail_lines": TAIL_LINES,
+                         "lan_urls": self.lan_urls(),
                          "history": self.history()}
                 await ws.send(json.dumps(hello, ensure_ascii=False))
                 async for raw in ws:        # ping от браузера — отвечаем, держим NAT/прокси

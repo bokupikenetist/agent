@@ -1,0 +1,24 @@
+numpy
+pytesseract
+rapidfuzz
+pydantic>=2
+PyYAML
+watchdog
+websockets
+
+[:platform_system != "Windows"]
+opencv-python-headless
+
+[:platform_system == "Windows"]
+opencv-python
+
+[dev]
+pytest
+ruff
+
+[windows]
+
+[windows:platform_system == "Windows"]
+windows-capture
+pywin32
+dxcam

@@ -1,0 +1,2 @@
+[console_scripts]
+ss14-ocr = ss14_ocr.__main__:main
