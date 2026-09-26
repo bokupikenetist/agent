@@ -23,6 +23,28 @@ from ..config import load_app_config, load_layout_config, write_chat_rect
 log = logging.getLogger("region_editor")
 
 
+def _restore(hwnd: int) -> None:
+    """Развернуть свёрнутый/минимизированный клиент и поднять на передний план."""
+    import win32con
+    import win32gui
+
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    else:
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass  # фокус мог быть занят — не критично
+
+
+def _fresh_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """Клиентская область в экранных физических пикселях сразу после restore."""
+    from ..capture.window import _client_rect_screen
+
+    return _client_rect_screen(hwnd)
+
+
 def run_edit_region(config_dir: Path, client_rect: tuple[int, int, int, int] | None = None) -> int:
     import tkinter as tk
 
@@ -36,13 +58,30 @@ def run_edit_region(config_dir: Path, client_rect: tuple[int, int, int, int] | N
             print("RegionEditor: нет окна клиента; на Linux укажите --client-rect x,y,w,h",
                   file=sys.stderr)
             return 2
+        import time
+
         from ..capture.window import find_window, make_dpi_aware
         make_dpi_aware()
-        info = find_window(app_cfg.window.title_regex, app_cfg.window.process_name)
-        if info is None or info.minimized:
-            print("RegionEditor: окно клиента не найдено/свёрнуто", file=sys.stderr)
-            return 2
-        client_rect = info.client_rect
+        # FR-1: если окно не найдено или свёрнуто — ждать и повторять поиск,
+        # как в конвейере; разворачиваем найденное окно сами.
+        retry = app_cfg.window.retry_seconds
+        while True:
+            info = find_window(app_cfg.window.title_regex, app_cfg.window.process_name)
+            if info and not info.minimized:
+                break
+            if info:                       # свернуто — развернём и возьмём свежий rect
+                _restore(info.hwnd)
+                time.sleep(0.3)
+                continue
+            print("RegionEditor: окно клиента не найдено (или свёрнуто), "
+                  f"повтор через {retry:.1f} с; можно закрыть окно (Ctrl+C) или "
+                  "передать --client-rect x,y,w,h", file=sys.stderr, flush=True)
+            try:
+                time.sleep(retry)
+            except KeyboardInterrupt:
+                print("\nRegionEditor: отменено", file=sys.stderr)
+                return 130
+        client_rect = _fresh_rect(info.hwnd)
 
     cx, cy, cw, ch = client_rect
     if cw <= 0 or ch <= 0:

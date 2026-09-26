@@ -152,46 +152,32 @@ def load_layout_config(path: Path) -> LayoutCfg:
 
 
 def write_chat_rect(layout_path: Path, rect: Rect) -> None:
-    """Атомарно обновляет только chat.rect, сохраняя комментарии (FR-4).
+    """Атомарно обновляет только chat.rect, сохраняя остальные поля (FR-4).
 
-    Правится одна строка `rect:` в блоке chat; файл переписывается целиком
-    и подменяется через os.replace (атомарно), чтобы читатель не увидел
-    наполовину записанный файл.
+    Файл перечитывается через YAML, меняется одно поле `chat.rect`, результат
+    переписывается целиком и подменяется через os.replace (атомарно), чтобы
+    читатель не увидел наполовину записанный файл. Разметка приводится к
+    block-style — пошаговая правка строк ломала файлы с блочными списками.
     """
     import os
     import tempfile
 
-    text = layout_path.read_text(encoding="utf-8")
-    new_rect = "[{:0.2f}, {:0.2f}, {:0.2f}, {:0.2f}]".format(*rect)
-    lines = text.splitlines()
-    in_chat = False
-    replaced = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        if stripped.rstrip(":") == "chat":
-            in_chat = True
-            continue
-        if in_chat and stripped and not line.startswith((" ", "\t")):
-            in_chat = False  # вышли из блока chat
-        if in_chat and stripped.startswith("rect:"):
-            indent = line[: len(line) - len(line.lstrip())]
-            comment = stripped[len("rect:"):]
-            tail = ""
-            hash_pos = comment.find("#")
-            if hash_pos != -1:
-                tail = "   " + comment[hash_pos:].strip()
-            lines[i] = f"{indent}rect: {new_rect}{tail}"
-            replaced = True
-            break
-    if not replaced:
+    data = load_yaml(layout_path)
+    chat = data.get("chat") if isinstance(data, dict) else None
+    if not isinstance(chat, dict) or "rect" not in chat:
         raise ConfigError(f"в {layout_path} не найдено поле chat.rect")
+
+    chat["rect"] = [round(float(v), 4) for v in rect]
+    out = "# раскладка; rect меняется edit-region (x, y, w, h в долях клиентской области)\n"
+    out += yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
     fd, tmp = tempfile.mkstemp(dir=str(layout_path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
+            f.write(out)
         os.replace(tmp, layout_path)
-    finally:
-        if os.path.exists(tmp):
+    except BaseException:
+        try:
             os.unlink(tmp)
+        except OSError:
+            pass
+        raise
