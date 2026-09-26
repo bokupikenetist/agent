@@ -1,6 +1,14 @@
-# Раскладка HUD по умолчанию. Координаты — доли клиентской области (0…1).
+# раскладка; rect меняется edit-region (x, y, w, h в долях клиентской области)
 chat:
-  rect: [0.00, 0.60, 0.35, 0.38]   # x, y, w, h; поле rect меняет edit-region
+  rect:
+  - 0.6844
+  - 0.0
+  - 0.3156
+  - 0.3102
   poll_hz: 2
   change_threshold: 0.01
-  preprocess: [upscale_3x, grayscale, autocontrast, invert]
+  preprocess:
+  - upscale_3x
+  - grayscale
+  - autocontrast
+  - invert

@@ -14,7 +14,7 @@ ocr:
   language: rus
   workers: 1
   tesseract:
-    cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+    cmd: ".\tesseract\tesseract.exe"
     psm: 6
     oem: 1
     min_word_conf: 40      # слова ниже порога отбрасываются

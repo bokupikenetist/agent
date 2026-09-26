@@ -1,1 +1,8 @@
-(empty)
+
+# Python compiled files
+__pycache__/
+*.pyc
+
+# Environment and config (optional but common for .env, though not seen in list)
+.envtesseract
+tesseract/
