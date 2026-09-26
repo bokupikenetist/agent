@@ -34,7 +34,7 @@ class WgcSource:
         self._minimized_logged = False
 
     def start(self, on_frame: Callable[[Frame], None]) -> None:
-        from windows_capture import WindowsCapture, FrameStart  # lazy import
+        from windows_capture import WindowsCapture, Frame  # lazy import
         self._on_frame = on_frame
         info = self._provider()
         if info is None:
