@@ -49,7 +49,7 @@ def setup_logging(cfg: AppConfig, config_dir: Path) -> None:
     root = logging.getLogger()
     root.setLevel(level)
     for h in list(root.handlers):
-        if getattr(h, "_ss14_ocr_handler", False):
+        if getattr(h, "_ss14_ocr_handler", False) or getattr(h, "_ss14_ws_handler", False):
             root.removeHandler(h)
             try:
                 h.close()
@@ -70,6 +70,17 @@ def setup_logging(cfg: AppConfig, config_dir: Path) -> None:
         fh.setFormatter(fmt)
         fh._ss14_ocr_handler = True
         root.addHandler(fh)
+    # hot reload: WS-log-handler был снят выше вместе с прочими — переподключаем
+    # sink, чтобы браузер продолжал получать логи после смены logging.*
+    ws_sink = getattr(setup_logging, "_ws_sink", None)
+    if ws_sink is not None and ws_sink.log_enabled:
+        ws_sink.attach_log_handler()
+
+
+def register_ws_log_sink(sink) -> None:
+    """Pipeline вызывает это при старте: setup_logging знает, кого возвращать."""
+    setup_logging._ws_sink = sink
+setup_logging._ws_sink = None          # type: ignore[attr-defined]
 
 
 def make_source(cfg: AppConfig, window_provider, poll_hz: float = 2.0):
@@ -120,8 +131,14 @@ class Pipeline:
         self.bus = EventBus()
         self.journal = SessionJournal(Path(app.journal.dir), save_crops=app.journal.save_crops)
         self.console = ConsoleSink() if app.sinks.console else None
-        self.ws = WebSocketSink(app.sinks.websocket.host, app.sinks.websocket.port) \
-            if app.sinks.websocket.enabled else None
+        self.ws = WebSocketSink(
+            app.sinks.websocket.host, app.sinks.websocket.port,
+            log_enabled=app.sinks.websocket.logging.enabled,
+            tail_file=app.sinks.websocket.logging.tail_file,
+            log_file=(config_dir.parent / app.logging.file)
+                     if app.logging.file and not Path(app.logging.file).is_absolute()
+                     else (Path(app.logging.file) if app.logging.file else None),
+        ) if app.sinks.websocket.enabled else None
         self.preview = None
         if store.snapshot()[0].debug.preview:
             from .debug.preview import PreviewWindow
@@ -244,6 +261,7 @@ class Pipeline:
         if self.ws:
             await self.ws.start()
             self.bus.subscribe(self.ws)
+            register_ws_log_sink(self.ws)   # hot reload logging.* вернёт handler
         await self.bus.start()
 
         provider = self._make_window_provider()

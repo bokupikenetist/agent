@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 
 # Python compiled files
 __pycache__/
@@ -7,7 +7,7 @@ __pycache__/
 # Environment and config (optional but common for .env, though not seen in list)
 .envtesseract
 tesseract/
-=======
+
 # Compiled files
 __pycache__/
 *.py[cod]
@@ -16,4 +16,4 @@ __pycache__/
 .env
 .env.local
 .env.*
->>>>>>> 985049dc59dc1221a121b6eb35731b2ee152d63f
+
