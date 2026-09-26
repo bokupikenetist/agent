@@ -20,6 +20,13 @@ class TextEvent:
     frame_id: int
     engine: str
     confidence: float | None
+    # качество привязки строки к прошлому экрану (см. ChatTracker):
+    #   anchored   — ниже подтверждённого совпадения со старым экраном;
+    #   unanchored — совпадений нет вовсе (полная прокрутка/сбой OCR), это
+    #                нижняя строка экрана «наугад» — downstream может не доверять.
+    # Поле добавлено с концом списка и default — старые читатели и JSONL
+    # совместимы (агент игнорирует неизвестные поля, ТЗ §8).
+    detection_quality: Literal["anchored", "unanchored"] = "anchored"
 
     def to_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)

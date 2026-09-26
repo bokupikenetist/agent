@@ -70,7 +70,7 @@ class ChatTracker:
             # не публикуем ничего (docstring модуля и test_first_frame_not_published)
             self._first = False
         elif cur_norm:
-            new_idx = self._first_new_index(cur_norm)
+            new_idx, quality = self._first_new_index(cur_norm)
             for i in range(new_idx, len(cur_norm)):
                 n = cur_norm[i]
                 self._seen.append(n)
@@ -79,6 +79,7 @@ class ChatTracker:
                     region=self.region, kind="chat_line", text=cur_raw[i],
                     ts=now_iso(), frame_id=frame_id, engine=self.engine,
                     confidence=conf_by_norm.get(n),
+                    detection_quality=quality,
                 ))
         if cur_norm or not self._first:
             self._prev = cur_norm
@@ -99,8 +100,12 @@ class ChatTracker:
             return True
         return fuzz.token_sort_ratio(a, b) >= self.similarity
 
-    def _first_new_index(self, cur: list[str]) -> int:
+    def _first_new_index(self, cur: list[str]) -> tuple[int, str]:
         """Индекс первой новой строки через LCS-выравнивание с прошлым экраном.
+
+        Возвращает (индекс первой новой строки, качество привязки):
+        'anchored' — ниже подтверждённого совпадения, 'unanchored' — совпадений
+        нет вовсе (полная прокрутка/сбой OCR).
 
         Считаем максимальное общее подмножество строк (LCS) текущего и прошлого
         экрана; всё ниже последнего LCS-совпадения — новые сообщения. LCS
@@ -108,11 +113,11 @@ class ChatTracker:
         переносы и короткие «столовые» строки вроде «A1», «A2» без ложных склеек.
         """
         if not cur:
-            return 0
+            return 0, "anchored"
         if not self._prev:
             # экрана раньше не было (первый непустой кадр или пустой прошлый):
             # считаем опубликованным уже весь экран — дубли истории не шлём
-            return len(cur)
+            return len(cur), "anchored"
         n, m = len(cur), len(self._prev)
         # dp[i][j] — длина LCS от cur[i:] и prev[j:] (таблица с конца экранов)
         dp = [[0] * (m + 1) for _ in range(n + 1)]
@@ -137,7 +142,8 @@ class ChatTracker:
                 j += 1                      # prev[j] ушла с экрана (прокрутка)
         if lowest_match < 0:
             # совпадений нет (смена раскладки/полная прокрутка за историю):
-            # считаем новым только последний ряд — защита от шквала дублей
-            return n - 1
-        return lowest_match + 1
+            # считаем новым только последний ряд — защита от шквала дублей;
+            # помечаем unanchored, downstream решает, доверять ли строке
+            return n - 1, "unanchored"
+        return lowest_match + 1, "anchored"
 

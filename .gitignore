@@ -1,2 +1,8 @@
-(empty)__pycache__/
-*.pyc
+# Compiled files
+__pycache__/
+*.py[cod]
+
+# Environment and secrets
+.env
+.env.local
+.env.*
