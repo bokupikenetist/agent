@@ -66,7 +66,8 @@ class WsLoggingCfg(BaseModel):
 
 class WebsocketSinkCfg(BaseModel):
     enabled: bool = True
-    host: str = "127.0.0.1"            # FR-11/NFR-8: только localhost
+    host: str = "127.0.0.1"            # FR-11/NFR-8 по умолчанию localhost;
+                                       # 0.0.0.0 — доступ из локальной сети (LAN)
     port: int = Field(8765, ge=1, le=65535)
     logging: WsLoggingCfg = WsLoggingCfg()
 
