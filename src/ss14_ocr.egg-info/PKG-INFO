@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: ss14-ocr
+Version: 0.1.0
+Summary: OCR-каркас для SS14-агента: захват окна клиента, распознавание русского чата, поток TextEvent
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: opencv-python; platform_system == "Windows"
+Requires-Dist: opencv-python-headless; platform_system != "Windows"
+Requires-Dist: pytesseract
+Requires-Dist: rapidfuzz
+Requires-Dist: pydantic>=2
+Requires-Dist: PyYAML
+Requires-Dist: watchdog
+Requires-Dist: websockets
+Provides-Extra: windows
+Requires-Dist: windows-capture; platform_system == "Windows" and extra == "windows"
+Requires-Dist: pywin32; platform_system == "Windows" and extra == "windows"
+Requires-Dist: dxcam; platform_system == "Windows" and extra == "windows"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
