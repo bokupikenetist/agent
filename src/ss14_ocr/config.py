@@ -115,7 +115,26 @@ class RegionCfg(BaseModel):
             raise ValueError("rect — четыре числа")
         if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1):
             raise ValueError(f"rect {v} вне долей 0..1 (x,y,w,h)")
+        # прямоугольник не должен выходить за пределы клиентской области
+        if x + w > 1.0 + 1e-9 or y + h > 1.0 + 1e-9:
+            raise ValueError(
+                f"rect {v}: x+w={x + w:.3f}, y+h={y + h:.3f} выходят за границы 0..1")
         return (float(x), float(y), float(w), float(h))
+
+    @field_validator("preprocess")
+    @classmethod
+    def _known_steps(cls, v: list[str]) -> list[str]:
+        """Опечатка в имени шага — ошибка конфига, а не молчаливый пропуск (FR-7)."""
+        try:
+            from .preprocess import REGISTRY   # лениво: cv2 не нужен для чистых тестов config
+        except ImportError:                     # opencv недоступен — не блокируем загрузку
+            return v
+        unknown = [s for s in v if s not in REGISTRY]
+        if unknown:
+            raise ValueError(
+                f"неизвестные шаги предобработки {unknown}; "
+                f"доступны: {sorted(REGISTRY)}")
+        return v
 
 
 class LayoutCfg(BaseModel):

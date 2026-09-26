@@ -45,11 +45,13 @@ class ChatTracker:
         self._first = True                      # первый кадр — не публикуем историю
         self._seen: deque[str] = deque(maxlen=history)   # последние опубликованные
         self._published_raw: set[str] = set()             # их сырой текст (для повторов)
+        self._screen_published: list[str] = []            # нормализованный экран, по которому уже всё опубликовано
 
     def reset(self) -> None:
         self._prev = []
         self._seen.clear()
         self._published_raw.clear()
+        self._screen_published = []
         self._first = True
 
     # ---------- основной вход ----------
@@ -68,7 +70,7 @@ class ChatTracker:
             # не публикуем ничего (docstring модуля и test_first_frame_not_published)
             self._first = False
         elif cur_norm:
-            new_idx = self._first_new_index(cur_norm)
+            new_idx, quality = self._first_new_index(cur_norm)
             for i in range(new_idx, len(cur_norm)):
                 n = cur_norm[i]
                 self._seen.append(n)
@@ -77,9 +79,13 @@ class ChatTracker:
                     region=self.region, kind="chat_line", text=cur_raw[i],
                     ts=now_iso(), frame_id=frame_id, engine=self.engine,
                     confidence=conf_by_norm.get(n),
+                    detection_quality=quality,
                 ))
         if cur_norm or not self._first:
             self._prev = cur_norm
+        # помечаем текущий экран как полностью опубликованный (для проверки
+        # «тот же экран повторно» в _first_new_index)
+        self._screen_published = list(cur_norm)
         return events
 
     # ---------- внутренняя логика ----------
@@ -94,29 +100,50 @@ class ChatTracker:
             return True
         return fuzz.token_sort_ratio(a, b) >= self.similarity
 
-    def _first_new_index(self, cur: list[str]) -> int:
+    def _first_new_index(self, cur: list[str]) -> tuple[int, str]:
         """Индекс первой новой строки через LCS-выравнивание с прошлым экраном.
 
-        Совпадения ищутся снизу вверх (строки чата смещаются вверх при
-        появлении новых); всё ниже самого нижнего совпадения — новые строки.
-        Если совпадений нет вообще, но строки уже публиковались (полная
-        прокрутка за историю) — не публикуем ничего; иначе новым считается
-        последний ряд экрана.
+        Возвращает (индекс первой новой строки, качество привязки):
+        'anchored' — ниже подтверждённого совпадения, 'unanchored' — совпадений
+        нет вовсе (полная прокрутка/сбой OCR).
+
+        Считаем максимальное общее подмножество строк (LCS) текущего и прошлого
+        экрана; всё ниже последнего LCS-совпадения — новые сообщения. LCS
+        корректно обрабатывает прокрутку (сверху строки ушли, снизу пришли новые),
+        переносы и короткие «столовые» строки вроде «A1», «A2» без ложных склеек.
         """
         if not cur:
-            return 0
+            return 0, "anchored"
         if not self._prev:
-            return 0                     # экран раньше был пуст — всё снизу ново
-        # Ищем снизу вверх самое НИЖНЕЕ совпадение текущего экрана с прошлым.
-        # Всё ниже него — новые строки; выше — прокрутка/история.
-        i = len(cur) - 1
-        while i >= 0:
-            n = cur[i]
-            for p in reversed(self._prev):
-                if self._similar(n, p):
-                    return i + 1
-            i -= 1
-        # совпадений нет (смена раскладки/полная прокрутка за историю):
-        # считаем новым только последний ряд — защита от шквала дублей
-        return len(cur) - 1
+            # экрана раньше не было (первый непустой кадр или пустой прошлый):
+            # считаем опубликованным уже весь экран — дубли истории не шлём
+            return len(cur), "anchored"
+        n, m = len(cur), len(self._prev)
+        # dp[i][j] — длина LCS от cur[i:] и prev[j:] (таблица с конца экранов)
+        dp = [[0] * (m + 1) for _ in range(n + 1)]
+        for i in range(n - 1, -1, -1):
+            for j in range(m - 1, -1, -1):
+                if self._similar(cur[i], self._prev[j]):
+                    dp[i][j] = dp[i + 1][j + 1] + 1
+                else:
+                    dp[i][j] = max(dp[i + 1][j], dp[i][j + 1])
+        # Проходим по выравниванию сверху вниз и запоминаем позицию самого
+        # нижнего совпадения в текущем экране.
+        i = j = 0
+        lowest_match = -1
+        while i < n and j < m:
+            if self._similar(cur[i], self._prev[j]):
+                lowest_match = i
+                i += 1
+                j += 1
+            elif dp[i + 1][j] >= dp[i][j + 1]:
+                i += 1                      # cur[i] — новая/лишняя строка
+            else:
+                j += 1                      # prev[j] ушла с экрана (прокрутка)
+        if lowest_match < 0:
+            # совпадений нет (смена раскладки/полная прокрутка за историю):
+            # считаем новым только последний ряд — защита от шквала дублей;
+            # помечаем unanchored, downstream решает, доверять ли строке
+            return n - 1, "unanchored"
+        return lowest_match + 1, "anchored"
 

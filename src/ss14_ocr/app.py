@@ -39,12 +39,26 @@ log = logging.getLogger(__name__)
 
 
 def setup_logging(cfg: AppConfig, config_dir: Path) -> None:
+    """Идемпотентная настройка root-логгера (NFR-9).
+
+    Повторный вызов (hot reload logging.*) сначала снимает handlers, которые
+    ставила эта функция (по метке _ss14_ocr_handler), — иначе дублировались
+    строки в консоли и файле.
+    """
     level = getattr(logging, cfg.logging.level, logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
+    for h in list(root.handlers):
+        if getattr(h, "_ss14_ocr_handler", False):
+            root.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
+    sh._ss14_ocr_handler = True
     root.addHandler(sh)
     if cfg.logging.file:
         logfile = (config_dir.parent / cfg.logging.file) if not Path(cfg.logging.file).is_absolute() \
@@ -54,6 +68,7 @@ def setup_logging(cfg: AppConfig, config_dir: Path) -> None:
             logfile, maxBytes=cfg.logging.max_bytes, backupCount=cfg.logging.backup_count,
             encoding="utf-8")
         fh.setFormatter(fmt)
+        fh._ss14_ocr_handler = True
         root.addHandler(fh)
 
 
@@ -112,13 +127,16 @@ class Pipeline:
             from .debug.preview import PreviewWindow
             self.preview = PreviewWindow()
 
-        self._executor = cf.ThreadPoolExecutor(max_workers=max(1, app.ocr.workers),
-                                               thread_name_prefix="ocr")
+        # OCR — один воркер: «latest frame» + последовательные события важнее
+        # throughput (см. ТЗ §4 потоки); ocr.workers > 1 пока не даёт параллелизма
+        self._executor = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ocr")
         self._latest_frame: Frame | None = None
         self._frame_lock = threading.Lock()
         self._ocr_busy = threading.Event()
         self._stop = threading.Event()
         self._source = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._prev_app: AppConfig = app          # для diff при hot reload
         self._on_event_extra = on_event
         store.subscribe(self._on_config_change)
 
@@ -126,14 +144,40 @@ class Pipeline:
     def _on_config_change(self, what: str) -> None:
         app, layout = self.store.snapshot()
         if what == "app":
+            prev = self._prev_app
             new_engine = ocr_base.create_engine(app.ocr.engine, app.ocr)
             if new_engine.name != self.engine.name:
                 log.info("смена OCR-движка: %s -> %s", self.engine.name, new_engine.name)
                 self.engine = new_engine
                 self.tracker.engine = new_engine.name
+            elif app.ocr.tesseract != prev.ocr.tesseract or \
+                    app.ocr.language != prev.ocr.language:
+                self.engine = new_engine       # те же параметры движка — пересоздать
             self.journal.update_opts(app.journal.save_crops)
+            if app.logging != prev.logging:
+                setup_logging(app, self.config_dir)   # идемпотентно, без дублей handlers
+            # что применимо на лету, а что требует рестарта — честно в лог (FR-5)
+            if app.capture != prev.capture:
+                log.warning(
+                    "capture.* изменён (backend=%s fps=%s): источник создаётся при старте — "
+                    "требуется перезапуск", app.capture.backend, app.capture.fps)
+            if app.ocr.workers != prev.ocr.workers:
+                log.warning("ocr.workers=%d: конвейер использует 1 OCR-воркер "
+                            "(порядок событий), значение принято только при старте",
+                            app.ocr.workers)
+            if app.sinks.websocket != prev.sinks.websocket:
+                log.warning("sinks.websocket изменён (host/port/enabled): "
+                            "WebSocket-сервер пересоздаётся только при перезапуске")
+            if app.journal.dir != prev.journal.dir:
+                log.warning("journal.dir изменён: текущая сессия дописывается в %s, "
+                            "новый каталог будет использован после перезапуска",
+                            self.journal.dir)
+            if app.window != prev.window:
+                log.warning("window.* изменён: поиск окна перечитывается при каждом "
+                            "повторе; активный захват текущего окна не перестраивается")
         if what == "layout":
             self.scheduler._detector.reset()   # регион поехал — сравниваем заново
+        self._prev_app = app
 
     # ---------- поток захвата ----------
     def _on_frame(self, frame: Frame) -> None:
@@ -180,20 +224,22 @@ class Pipeline:
                     self._on_event_extra(ev)
                 except Exception:
                     log.exception("on_event callback упал")
-            # журнал пишем синхронно из этого же потока с кропом (save_crops)
-            self.journal.publish_sync(ev, crop=crop if self.journal.save_crops else None)
-            fut = asyncio.run_coroutine_threadsafe(
-                self.bus.publish_threadsafe(_as_dict_without_crop(ev)), self._loop)
-            fut.result(timeout=2)
+            # единственный маршрут события — через шину (вариант A): журнал,
+            # консоль и WebSocket получают его ровно один раз из pump-цикла.
+            # publish_from_thread — fire-and-forget, OCR не ждёт asyncio-loop;
+            # кроп едет вместе с событием до SessionJournal (save_crops).
+            self.bus.publish_from_thread(
+                ev, crop=crop if self.journal.save_crops else None)
         if self.preview:
             self.preview.show_lines(lines)
 
     # ---------- главный цикл ----------
     async def run_async(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self.bus.attach_loop(self._loop)
         self.bus.subscribe(self.console) if self.console else None
-        # journal уже пишется синхронно из OCR-потока (FR-10 «сразу»),
-        # но подписываем и на шину события других типов (MomentEvent в будущем)
+        # journal — единственный писатель событий в файл сессии; подписан на
+        # шину как обычный sink (дублирующей синхронной записи из OCR-потока нет)
         self.bus.subscribe(self.journal)
         if self.ws:
             await self.ws.start()
@@ -285,9 +331,3 @@ class Pipeline:
 
     def run(self) -> None:
         asyncio.run(self.run_async())
-
-
-def _as_dict_without_crop(ev: TextEvent) -> dict:
-    import dataclasses
-    d = dataclasses.asdict(ev)
-    return d

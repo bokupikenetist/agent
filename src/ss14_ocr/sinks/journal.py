@@ -42,6 +42,9 @@ class SessionJournal:
         self.save_crops = save_crops
 
     def publish_sync(self, event: Any, crop: np.ndarray | None = None) -> None:
+        """Единственная точка записи журнала. Вызывается из pump-цикла EventBus
+        (asyncio-loop), а НЕ из OCR-потока — так событие пишется ровно один раз
+        (FR-10), а диск/PNG не тормозят конвейер распознавания."""
         if self._fh is None:
             self.open()
         d = dataclasses.asdict(event) if dataclasses.is_dataclass(event) else dict(event)
@@ -57,8 +60,8 @@ class SessionJournal:
         self._count += 1
 
     # ---------- интерфейс Sink (async) ----------
-    async def publish(self, event: dict) -> None:
-        self.publish_sync(event, crop=None)
+    async def publish(self, event: dict, crop: np.ndarray | None = None) -> None:
+        self.publish_sync(event, crop=crop)
 
     async def close(self) -> None:
         if self._fh:
