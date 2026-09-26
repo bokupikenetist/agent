@@ -22,7 +22,8 @@ def _ev(text="привет", fid=1):
                      frame_id=fid, engine="tess", confidence=0.9)
 
 
-def test_journal_receives_event_once_via_bus(tmp_path):
+@pytest.mark.asyncio
+async def test_journal_receives_event_once_via_bus(tmp_path):
     """Вариант A: событие публикуется один раз и попадает в журнал один раз."""
     bus = EventBus()
     j = SessionJournal(tmp_path, save_crops=False)
@@ -38,9 +39,7 @@ def test_journal_receives_event_once_via_bus(tmp_path):
 
 
 @pytest.mark.asyncio
-def _crop_travels(tmp_path):
-    """OCR-поток передаёт кроп через шину; journal сохраняет PNG + crop_path."""
-    async def go():(tmp_path):
+async def test_crop_travels(tmp_path):
     """OCR-поток передаёт кроп через шину; journal сохраняет PNG + crop_path."""
     bus = EventBus()
     j = SessionJournal(tmp_path, save_crops=True)
