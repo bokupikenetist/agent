@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ss14-ocr"
+version = "0.1.0"
+description = "OCR-каркас для SS14-агента: захват окна клиента, распознавание русского чата, поток TextEvent"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "opencv-python; platform_system=='Windows'",
+    "opencv-python-headless; platform_system!='Windows'",
+    "pytesseract",
+    "rapidfuzz",
+    "pydantic>=2",
+    "PyYAML",
+    "watchdog",
+    "websockets",
+]
+
+[project.optional-dependencies]
+windows = [
+    "windows-capture; platform_system=='Windows'",
+    "pywin32; platform_system=='Windows'",
+    "dxcam; platform_system=='Windows'",
+]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+ss14-ocr = "ss14_ocr.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
