@@ -64,8 +64,9 @@ class ChatTracker:
 
         events: list[TextEvent] = []
         if self._first:
-            # первый непустой кадр: запоминаем экран как базовый, не публикуем
-            self._first = bool(not cur_norm)
+            # первый непустой кадр — это история чата на экране при старте,
+            # не публикуем ничего (docstring модуля и test_first_frame_not_published)
+            self._first = False
         elif cur_norm:
             new_idx = self._first_new_index(cur_norm)
             for i in range(new_idx, len(cur_norm)):
@@ -106,17 +107,16 @@ class ChatTracker:
             return 0
         if not self._prev:
             return 0                     # экран раньше был пуст — всё снизу ново
-        j = len(self._prev) - 1
+        # Ищем снизу вверх самое НИЖНЕЕ совпадение текущего экрана с прошлым.
+        # Всё ниже него — новые строки; выше — прокрутка/история.
         i = len(cur) - 1
-        matched = False
-        while i >= 0 and j >= 0:
-            if self._similar(cur[i], self._prev[j]):
-                matched = True
-                j -= 1
+        while i >= 0:
+            n = cur[i]
+            for p in reversed(self._prev):
+                if self._similar(n, p):
+                    return i + 1
             i -= 1
-        if not matched:
-            # совпадений нет (смена раскладки/полная прокрутка за историю):
-            # считаем новым только последний ряд — защита от шквала дублей
-            return len(cur) - 1
-        return i + 1
+        # совпадений нет (смена раскладки/полная прокрутка за историю):
+        # считаем новым только последний ряд — защита от шквала дублей
+        return len(cur) - 1
 

@@ -59,6 +59,6 @@ def test_apply_chain_full(dark_bg_light_text):
     assert out.shape[0] >= 30                 # высота строки ~30px после апскейла (ТЗ §3)
 
 
-def test_unknown_step_skipped(caplog):
+def test_unknown_step_skipped(dark_bg_light_text, caplog):
     out = preprocess.apply_chain(dark_bg_light_text, ["no_such_step", "grayscale"])
     assert out.ndim == 2                      # цепочка продолжилась
